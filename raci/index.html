@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RACI Proje Yönetimi</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" integrity="sha384-kctnYwGmqGJx0SqnX+S0SBU9tDk4yP+BYe3gfq3WRxuhBzsPlLthYb3vu7p9JX9q" crossorigin="anonymous"></script>
+  <style>
+    :root {
+      --bg: #f6f6f6;
+      --panel: #ffffff;
+      --text: #111827;
+      --muted: #6b7280;
+      --accent: #6366f1;
+      --border: #e5e7eb;
+      --gantt-bg: #e5e7eb;
+      --badge-bg: #eef2ff;
+    }
+    body.dark {
+      --bg: #1f1f23;
+      --panel: #2a2a31;
+      --text: #f9fafb;
+      --muted: #9ca3af;
+      --accent: #8b5cf6;
+      --border: #3f3f46;
+      --gantt-bg: #3b3b45;
+      --badge-bg: #2f2f38;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .left, .right { display: flex; gap: 8px; align-items: center; }
+    button, .ghost-btn {
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text);
+      padding: 6px 10px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    button.primary { background: var(--accent); color: white; border-color: var(--accent); }
+    button.ghost { background: transparent; }
+    main { padding: 16px; }
+    .view-toggle button.active { background: var(--accent); color: white; }
+    .table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .table th, .table td {
+      border-bottom: 1px solid var(--border);
+      padding: 8px;
+      text-align: left;
+      vertical-align: middle;
+    }
+    .table th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.02em; }
+    .row {
+      display: grid;
+      align-items: center;
+      grid-template-columns: 24px 220px repeat(auto-fit, minmax(140px, 1fr));
+    }
+    .handle { cursor: grab; color: var(--muted); }
+    .indent { margin-left: var(--indent, 0px); display: inline-flex; align-items: center; gap: 6px; }
+    .pill { padding: 4px 8px; border-radius: 12px; background: var(--badge-bg); }
+    .select-box { min-width: 120px; }
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+    .gantt {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+      overflow: auto;
+    }
+    .gantt-grid { position: relative; }
+    .gantt-row { position: relative; height: 32px; margin-bottom: 6px; }
+    .gantt-bar {
+      position: absolute; height: 24px; border-radius: 8px; background: linear-gradient(135deg, var(--accent), #a855f7);
+      color: white; padding: 4px 8px; font-size: 12px; cursor: grab;
+    }
+    .gantt-bar .resize-handle { position: absolute; top: 0; width: 8px; height: 100%; cursor: ew-resize; }
+    .gantt-bar .left { left: -4px; }
+    .gantt-bar .right { right: -4px; }
+    .ghost-bar { opacity: 0.35; filter: blur(1px); pointer-events: none; }
+    .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin-bottom: 14px; }
+    .flex { display: flex; gap: 8px; align-items: center; }
+    .column-settings li, .people-settings li, .status-settings li { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+    .badge { background: var(--badge-bg); padding: 4px 6px; border-radius: 8px; color: var(--muted); font-size: 12px; }
+    .hidden { display: none; }
+    input, select { padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel); color: var(--text); }
+    textarea { width: 100%; border-radius: 8px; border: 1px solid var(--border); background: var(--panel); color: var(--text); padding: 8px; }
+    .note { color: var(--muted); font-size: 13px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="left">
+      <strong>RACI Pro</strong>
+      <span class="badge" id="socket-status">Offline</span>
+      <button id="ai-analyze" class="ghost">AI Analiz</button>
+      <button id="save" class="primary">Kaydet &amp; Senkronize</button>
+    </div>
+    <div class="right">
+      <div class="view-toggle">
+        <button data-view="list" class="active">Liste</button>
+        <button data-view="gantt">Zaman Çizelgesi</button>
+      </div>
+      <button id="add-task">+ Satır</button>
+      <button id="add-column">+ Sütun</button>
+      <button id="open-settings" class="ghost">⚙️ Ayarlar</button>
+      <button id="toggle-mode" class="ghost">🌙</button>
+    </div>
+  </header>
+  <main>
+    <section id="list-view" class="panel">
+      <div class="row" id="table-head"></div>
+      <div id="table-body"></div>
+    </section>
+    <section id="gantt-view" class="panel hidden">
+      <div class="note">Çubukları sürükleyerek tarihleri değiştirin, uçlarından tutarak süreyi uzatın. Hayalet bar hareketi sürüklemeyi gösterir.</div>
+      <div id="gantt-grid" class="gantt"></div>
+    </section>
+    <section id="settings" class="panel hidden">
+      <h3>Ayarlar</h3>
+      <div class="flex">
+        <button class="ghost" data-settings="columns">Sütunlar</button>
+        <button class="ghost" data-settings="people">Kişiler</button>
+        <button class="ghost" data-settings="status">Durumlar</button>
+        <button class="ghost" data-settings="ai">AI</button>
+      </div>
+      <div id="settings-content"></div>
+    </section>
+  </main>
+  <input type="file" id="hidden-file" class="hidden" />
+
+  <script>
+    const state = {
+      view: 'list',
+      dark: false,
+      people: ['Ahmet', 'Mehmet', 'Ayşe'],
+      statuses: [
+        { name: 'Bekliyor', color: '#fbbf24' },
+        { name: 'Devam Ediyor', color: '#3b82f6' },
+        { name: 'Tamamlandı', color: '#10b981' }
+      ],
+      columns: [
+        { key: 'title', label: 'Başlık', type: 'text', locked: true },
+        { key: 'start', label: 'Başlangıç', type: 'date' },
+        { key: 'end', label: 'Bitiş', type: 'date' },
+        { key: 'status', label: 'Durum', type: 'status' },
+        { key: 'priority', label: 'Önem', type: 'select', options: ['Düşük', 'Orta', 'Yüksek'] },
+        { key: 'urgency', label: 'Aciliyet', type: 'select', options: ['Normal', 'Acil'] },
+        { key: 'progress', label: '%', type: 'number' },
+        { key: 'notes', label: 'Notlar', type: 'longtext' },
+        { key: 'file', label: 'Dosya', type: 'file' },
+        { key: 'r', label: 'R', type: 'people' },
+        { key: 'a', label: 'A', type: 'people' },
+        { key: 'c', label: 'C', type: 'people' },
+        { key: 'i', label: 'I', type: 'people' }
+      ],
+      tasks: [],
+      apiKey: localStorage.getItem('geminiKey') || '',
+      socket: null
+    };
+
+    function createTask(title, parentId = null, extra = {}) {
+      return {
+        id: crypto.randomUUID(),
+        parentId,
+        title,
+        start: extra.start || '',
+        end: extra.end || '',
+        status: extra.status || 'Bekliyor',
+        priority: extra.priority || 'Orta',
+        urgency: extra.urgency || 'Normal',
+        progress: extra.progress || 0,
+        notes: extra.notes || '',
+        file: extra.file || '',
+        r: extra.r || [],
+        a: extra.a || [],
+        c: extra.c || [],
+        i: extra.i || []
+      };
+    }
+
+    function today() {
+      return new Date().toISOString().slice(0, 10);
+    }
+    function future(days) {
+      const d = new Date();
+      d.setDate(d.getDate() + days);
+      return d.toISOString().slice(0, 10);
+    }
+
+    function saveState() {
+      localStorage.setItem('raci-state', JSON.stringify(state));
+    }
+
+    function loadState() {
+      const saved = localStorage.getItem('raci-state');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        Object.assign(state, parsed);
+      }
+      if (!state.tasks || state.tasks.length === 0) {
+        const rootTask = createTask('Proje Planı', null, { start: today(), end: future(5), status: 'Devam Ediyor', priority: 'Orta', progress: 40 });
+        const analysis = createTask('Analiz', rootTask.id, { start: today(), end: future(2), status: 'Bekliyor', priority: 'Yüksek' });
+        const dev = createTask('Geliştirme', null, { start: future(1), end: future(10), status: 'Bekliyor' });
+        state.tasks = [rootTask, analysis, dev];
+      }
+      document.body.classList.toggle('dark', state.dark);
+    }
+
+    function renderTable() {
+      const head = document.getElementById('table-head');
+      head.innerHTML = '';
+      state.columns.forEach(col => {
+        const cell = document.createElement('div');
+        cell.textContent = col.label;
+        cell.className = 'pill';
+        head.appendChild(cell);
+      });
+
+      const body = document.getElementById('table-body');
+      body.innerHTML = '';
+      const ordered = flattenTasks();
+      ordered.forEach(task => {
+        const row = document.createElement('div');
+        row.className = 'row';
+        row.dataset.id = task.id;
+        state.columns.forEach(col => {
+          const cell = document.createElement('div');
+          cell.dataset.key = col.key;
+          renderCell(cell, col, task);
+          row.appendChild(cell);
+        });
+        body.appendChild(row);
+      });
+
+      new Sortable(body, {
+        handle: '.handle',
+        animation: 150,
+        onEnd: evt => {
+          const movedId = evt.item.dataset.id;
+          moveBlockWithChildren(movedId, evt.newIndex);
+          renderAll();
+          broadcast();
+        }
+      });
+    }
+
+    function renderCell(cell, col, task) {
+      if (col.key === 'title') {
+        const indent = document.createElement('div');
+        indent.className = 'indent';
+        indent.style.setProperty('--indent', `${indentLevel(task) * 16}px`);
+        const handle = document.createElement('span');
+        handle.textContent = '☰';
+        handle.className = 'handle';
+        indent.appendChild(handle);
+        const indentBtn = document.createElement('button');
+        indentBtn.textContent = '→';
+        indentBtn.className = 'ghost-btn';
+        indentBtn.title = 'Alt göreve indir';
+        indentBtn.onclick = () => { indentTask(task.id); };
+        indent.appendChild(indentBtn);
+        const outdentBtn = document.createElement('button');
+        outdentBtn.textContent = '←';
+        outdentBtn.className = 'ghost-btn';
+        outdentBtn.title = 'Üste çıkar';
+        outdentBtn.onclick = () => { outdentTask(task.id); };
+        indent.appendChild(outdentBtn);
+        const input = document.createElement('input');
+        input.value = task.title;
+        input.oninput = e => { task.title = e.target.value; saveRender(); };
+        indent.appendChild(input);
+        const magic = document.createElement('button');
+        magic.textContent = '✨';
+        magic.className = 'ghost-btn';
+        magic.onclick = () => aiSuggest(task);
+        indent.appendChild(magic);
+        const del = document.createElement('button');
+        del.textContent = '🗑️';
+        del.className = 'ghost-btn';
+        del.onclick = () => deleteTask(task.id);
+        indent.appendChild(del);
+        cell.appendChild(indent);
+        return;
+      }
+      if (col.type === 'date') {
+        const input = document.createElement('input');
+        input.type = 'date';
+        input.value = task[col.key] || '';
+        input.oninput = e => { task[col.key] = e.target.value; saveRender(); };
+        cell.appendChild(input);
+        return;
+      }
+      if (col.type === 'number') {
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.value = task[col.key] || 0;
+        input.oninput = e => { task[col.key] = Number(e.target.value); saveRender(); };
+        cell.appendChild(input);
+        return;
+      }
+      if (col.type === 'longtext') {
+        const textarea = document.createElement('textarea');
+        textarea.value = task[col.key] || '';
+        textarea.oninput = e => { task[col.key] = e.target.value; saveRender(); };
+        cell.appendChild(textarea);
+        return;
+      }
+      if (col.type === 'file') {
+        const btn = document.createElement('button');
+        btn.textContent = task[col.key] ? task[col.key] : '📎 Dosya Ekle';
+        btn.onclick = () => {
+          const picker = document.getElementById('hidden-file');
+          picker.onchange = ev => {
+            const file = ev.target.files[0];
+            if (file) { task[col.key] = file.name; saveRender(); }
+          };
+          picker.click();
+        };
+        cell.appendChild(btn);
+        return;
+      }
+      if (col.type === 'status') {
+        const select = document.createElement('select');
+        state.statuses.forEach(s => {
+          const opt = document.createElement('option');
+          opt.value = s.name;
+          opt.textContent = s.name;
+          if (task[col.key] === s.name) opt.selected = true;
+          select.appendChild(opt);
+        });
+        select.onchange = e => { task[col.key] = e.target.value; saveRender(); };
+        cell.appendChild(select);
+        return;
+      }
+      if (col.type === 'select') {
+        const select = document.createElement('select');
+        col.options?.forEach(o => {
+          const opt = document.createElement('option');
+          opt.value = o; opt.textContent = o;
+          if (task[col.key] === o) opt.selected = true;
+          select.appendChild(opt);
+        });
+        select.onchange = e => { task[col.key] = e.target.value; saveRender(); };
+        const add = document.createElement('button');
+        add.textContent = '+';
+        add.className = 'ghost-btn';
+        add.onclick = () => {
+          const val = prompt('Yeni seçenek:');
+          if (val) { col.options.push(val); task[col.key] = val; saveRender(); renderSettings('columns'); }
+        };
+        cell.appendChild(select); cell.appendChild(add);
+        return;
+      }
+      if (col.type === 'people') {
+        const select = document.createElement('select');
+        select.multiple = true;
+        select.size = 3;
+        state.people.forEach(p => {
+          const opt = document.createElement('option');
+          opt.value = p; opt.textContent = p;
+          if ((task[col.key] || []).includes(p)) opt.selected = true;
+          select.appendChild(opt);
+        });
+        select.onchange = e => {
+          const chosen = Array.from(e.target.selectedOptions).map(o => o.value);
+          task[col.key] = chosen; saveRender();
+        };
+        cell.appendChild(select);
+        return;
+      }
+      const input = document.createElement('input');
+      input.value = task[col.key] || '';
+      input.oninput = e => { task[col.key] = e.target.value; saveRender(); };
+      cell.appendChild(input);
+    }
+
+    function indentTask(id) {
+      const ordered = flattenTasks();
+      const idx = ordered.findIndex(t => t.id === id);
+      if (idx <= 0) return;
+      const prev = ordered[idx - 1];
+      const task = state.tasks.find(t => t.id === id);
+      task.parentId = prev.id;
+      saveRender();
+    }
+
+    function outdentTask(id) {
+      const task = state.tasks.find(t => t.id === id);
+      if (!task || !task.parentId) return;
+      const parent = state.tasks.find(t => t.id === task.parentId);
+      task.parentId = parent ? parent.parentId || null : null;
+      saveRender();
+    }
+
+    function indentLevel(task) {
+      let level = 0;
+      let current = task;
+      while (current.parentId) {
+        level++;
+        current = state.tasks.find(t => t.id === current.parentId) || {};
+      }
+      return level;
+    }
+
+    function flattenTasks(parentId = null, level = 0) {
+      const children = state.tasks.filter(t => t.parentId === parentId);
+      let result = [];
+      children.forEach(child => {
+        child._level = level;
+        result.push(child);
+        result = result.concat(flattenTasks(child.id, level + 1));
+      });
+      return result;
+    }
+
+    function moveBlockWithChildren(id, newIndex) {
+      const ordered = flattenTasks();
+      const moving = ordered.find(t => t.id === id);
+      const subtree = ordered.filter(t => t.id === id || isDescendant(t, id));
+      const filtered = ordered.filter(t => !subtree.includes(t));
+      filtered.splice(newIndex, 0, ...subtree);
+      state.tasks = filtered;
+      saveState();
+    }
+
+    function isDescendant(task, ancestorId) {
+      let current = task;
+      while (current.parentId) {
+        if (current.parentId === ancestorId) return true;
+        current = state.tasks.find(t => t.id === current.parentId) || {};
+      }
+      return false;
+    }
+
+    function deleteTask(id) {
+      const toDelete = state.tasks.filter(t => t.id === id || isDescendant(t, id)).map(t => t.id);
+      state.tasks = state.tasks.filter(t => !toDelete.includes(t.id));
+      saveRender();
+    }
+
+    function saveRender() {
+      saveState();
+      renderAll();
+      broadcast();
+    }
+
+    function renderGantt() {
+      const grid = document.getElementById('gantt-grid');
+      grid.innerHTML = '';
+      const ordered = flattenTasks();
+      ordered.forEach((task, idx) => {
+        const row = document.createElement('div');
+        row.className = 'gantt-row';
+        const bar = document.createElement('div');
+        bar.className = 'gantt-bar';
+        const start = task.start || today();
+        const end = task.end || future(1);
+        const offset = daysBetween(today(), start) * 16;
+        const width = Math.max(16, daysBetween(start, end) * 16);
+        bar.style.left = offset + 'px';
+        bar.style.width = width + 'px';
+        bar.textContent = task.title;
+        bar.dataset.id = task.id;
+        const ghost = document.createElement('div');
+        ghost.className = 'gantt-bar ghost-bar hidden';
+        ghost.textContent = task.title;
+        row.appendChild(bar);
+        row.appendChild(ghost);
+        addGanttDrag(bar, ghost, task);
+        grid.appendChild(row);
+      });
+    }
+
+    function addGanttDrag(bar, ghost, task) {
+      let mode = null; // move, left, right
+      let startX = 0;
+      let originLeft = 0;
+      let originWidth = 0;
+      const leftHandle = document.createElement('div'); leftHandle.className = 'resize-handle left';
+      const rightHandle = document.createElement('div'); rightHandle.className = 'resize-handle right';
+      bar.appendChild(leftHandle); bar.appendChild(rightHandle);
+
+      const startDrag = (event, type) => {
+        mode = type;
+        startX = event.clientX;
+        originLeft = parseInt(bar.style.left, 10);
+        originWidth = parseInt(bar.style.width, 10);
+        ghost.classList.remove('hidden');
+        ghost.style.left = bar.style.left; ghost.style.width = bar.style.width; ghost.style.top = bar.style.top;
+        document.addEventListener('pointermove', onMove);
+        document.addEventListener('pointerup', endDrag);
+      };
+
+      const onMove = (event) => {
+        const dx = event.clientX - startX;
+        if (mode === 'move') {
+          ghost.style.left = originLeft + dx + 'px';
+        } else if (mode === 'left') {
+          ghost.style.left = originLeft + dx + 'px';
+          ghost.style.width = originWidth - dx + 'px';
+        } else if (mode === 'right') {
+          ghost.style.width = originWidth + dx + 'px';
+        }
+      };
+
+      const endDrag = () => {
+        const newLeft = parseInt(ghost.style.left, 10) || originLeft;
+        const newWidth = parseInt(ghost.style.width, 10) || originWidth;
+        const startOffsetDays = Math.round(newLeft / 16);
+        const durationDays = Math.max(1, Math.round(newWidth / 16));
+        task.start = dateFromOffset(startOffsetDays);
+        task.end = dateFromOffset(startOffsetDays + durationDays);
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', endDrag);
+        ghost.classList.add('hidden');
+        saveRender();
+      };
+
+      bar.addEventListener('pointerdown', e => startDrag(e, 'move'));
+      leftHandle.addEventListener('pointerdown', e => { e.stopPropagation(); startDrag(e, 'left'); });
+      rightHandle.addEventListener('pointerdown', e => { e.stopPropagation(); startDrag(e, 'right'); });
+    }
+
+    function daysBetween(a, b) {
+      return Math.max(1, Math.ceil((new Date(b) - new Date(a)) / (1000 * 60 * 60 * 24)));
+    }
+    function dateFromOffset(offset) {
+      const d = new Date();
+      d.setDate(d.getDate() + offset);
+      return d.toISOString().slice(0, 10);
+    }
+
+    function addTask() {
+      state.tasks.push(createTask('Yeni Görev'));
+      saveRender();
+    }
+
+    function addColumnPrompt() {
+      const label = prompt('Sütun adı:');
+      if (!label) return;
+      const type = prompt('Tip (text, number, date, select, people, longtext, file):', 'text');
+      const key = label.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-' + Date.now();
+      const col = { key, label, type: type || 'text' };
+      if (type === 'select') col.options = ['Seçenek'];
+      state.columns.push(col);
+      saveRender();
+    }
+
+    function renderSettings(tab = 'columns') {
+      const content = document.getElementById('settings-content');
+      content.innerHTML = '';
+      if (tab === 'columns') {
+        const ul = document.createElement('ul'); ul.className = 'column-settings';
+        state.columns.forEach((c, idx) => {
+          const li = document.createElement('li');
+          const input = document.createElement('input'); input.value = c.label; input.oninput = e => { c.label = e.target.value; renderTable(); saveState(); };
+          const up = document.createElement('button'); up.textContent = '↑'; up.onclick = () => { moveArray(state.columns, idx, idx - 1); saveRender(); renderSettings(tab); };
+          const down = document.createElement('button'); down.textContent = '↓'; down.onclick = () => { moveArray(state.columns, idx, idx + 1); saveRender(); renderSettings(tab); };
+          const del = document.createElement('button'); del.textContent = 'Sil'; del.onclick = () => { if (c.locked) return; state.columns.splice(idx, 1); saveRender(); renderSettings(tab); };
+          li.append(input, up, down, del);
+          ul.appendChild(li);
+        });
+        content.appendChild(ul);
+      }
+      if (tab === 'people') {
+        const ul = document.createElement('ul'); ul.className = 'people-settings';
+        state.people.forEach((p, idx) => {
+          const li = document.createElement('li');
+          const input = document.createElement('input'); input.value = p; input.oninput = e => { state.people[idx] = e.target.value; saveRender(); };
+          const del = document.createElement('button'); del.textContent = 'Sil'; del.onclick = () => { state.people.splice(idx,1); saveRender(); renderSettings(tab); };
+          li.append(input, del); ul.appendChild(li);
+        });
+        const add = document.createElement('button'); add.textContent = '+ Kişi'; add.onclick = () => { const name = prompt('Kişi adı'); if (name) { state.people.push(name); saveRender(); renderSettings(tab); } };
+        content.append(ul, add);
+      }
+      if (tab === 'status') {
+        const ul = document.createElement('ul'); ul.className = 'status-settings';
+        state.statuses.forEach((s, idx) => {
+          const li = document.createElement('li');
+          const name = document.createElement('input'); name.value = s.name; name.oninput = e => { s.name = e.target.value; saveRender(); };
+          const color = document.createElement('input'); color.type = 'color'; color.value = s.color; color.oninput = e => { s.color = e.target.value; saveRender(); };
+          const del = document.createElement('button'); del.textContent = 'Sil'; del.onclick = () => { state.statuses.splice(idx,1); saveRender(); renderSettings(tab); };
+          li.append(name, color, del); ul.appendChild(li);
+        });
+        const add = document.createElement('button'); add.textContent = '+ Durum'; add.onclick = () => { state.statuses.push({ name: 'Yeni Durum', color: '#94a3b8' }); saveRender(); renderSettings(tab); };
+        content.append(ul, add);
+      }
+      if (tab === 'ai') {
+        const label = document.createElement('div'); label.textContent = 'Google Gemini API Key';
+        const input = document.createElement('input'); input.value = state.apiKey; input.style.width = '320px'; input.oninput = e => { state.apiKey = e.target.value; localStorage.setItem('geminiKey', e.target.value); };
+        content.append(label, input, document.createElement('br'), document.createTextNode('AI özellikleri için zorunlu.'));
+      }
+    }
+
+    function moveArray(arr, from, to) {
+      if (to < 0 || to >= arr.length) return;
+      const item = arr.splice(from,1)[0];
+      arr.splice(to,0,item);
+    }
+
+    function renderAll() {
+      renderTable();
+      renderGantt();
+    }
+
+    function toggleView(view) {
+      state.view = view;
+      document.getElementById('list-view').classList.toggle('hidden', view !== 'list');
+      document.getElementById('gantt-view').classList.toggle('hidden', view !== 'gantt');
+      document.querySelectorAll('.view-toggle button').forEach(btn => btn.classList.toggle('active', btn.dataset.view === view));
+      saveState();
+    }
+
+    function toggleMode() {
+      document.body.classList.toggle('dark');
+      state.dark = document.body.classList.contains('dark');
+      saveState();
+    }
+
+    function aiSuggest(task) {
+      if (!state.apiKey) { alert('AI çalışması için Ayarlar > AI alanına API key girin.'); return; }
+      alert('AI çağrısı yapılacakmış gibi davranan yer burası. Backend bağlantısıyla Gemini kullanılabilir.');
+    }
+
+    async function saveDataToBackend() {
+      const payload = { tasks: state.tasks, people: state.people, statuses: state.statuses, columns: state.columns };
+      const API_URL = 'http://localhost:3000/api';
+      try {
+        const res = await fetch(`${API_URL}/save`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        if (!res.ok) throw new Error('Sunucu hatası');
+        alert('Backend kaydı başarılı');
+      } catch (err) {
+        console.warn('Backend erişilemedi, localStorage kullanılmaya devam.', err);
+      }
+    }
+
+    async function loadFromBackend() {
+      const API_URL = 'http://localhost:3000/api';
+      try {
+        const res = await fetch(`${API_URL}/load`);
+        if (!res.ok) return;
+        const payload = await res.json();
+        if (payload.tasks) state.tasks = payload.tasks;
+        if (payload.people) state.people = payload.people;
+        if (payload.statuses) state.statuses = payload.statuses;
+        if (payload.columns) state.columns = payload.columns;
+        saveState();
+        renderAll();
+      } catch (err) {
+        console.warn('Backendten yükleme başarısız, localStorage ile devam.', err);
+      }
+    }
+
+    function connectSocket() {
+      try {
+        const socket = io('http://localhost:3000');
+        state.socket = socket;
+        socket.on('connect', () => document.getElementById('socket-status').textContent = 'Online');
+        socket.on('disconnect', () => document.getElementById('socket-status').textContent = 'Offline');
+        socket.on('update', payload => {
+          Object.assign(state, payload);
+          renderAll();
+          saveState();
+        });
+      } catch (e) {
+        document.getElementById('socket-status').textContent = 'Offline';
+      }
+    }
+
+    function broadcast() {
+      if (state.socket && state.socket.connected) {
+        state.socket.emit('update', { tasks: state.tasks, people: state.people, statuses: state.statuses, columns: state.columns });
+      }
+    }
+
+    document.getElementById('toggle-mode').onclick = toggleMode;
+    document.querySelectorAll('.view-toggle button').forEach(btn => btn.onclick = () => toggleView(btn.dataset.view));
+    document.getElementById('add-task').onclick = addTask;
+    document.getElementById('add-column').onclick = addColumnPrompt;
+    document.getElementById('open-settings').onclick = () => document.getElementById('settings').classList.toggle('hidden');
+    document.querySelectorAll('[data-settings]').forEach(btn => btn.onclick = () => renderSettings(btn.dataset.settings));
+    document.getElementById('save').onclick = saveDataToBackend;
+    document.getElementById('ai-analyze').onclick = () => alert('AI analiz için backend/gemini entegrasyonu gerektiğinden burada sadece bilgi veriliyor.');
+
+    loadState();
+    renderSettings();
+    renderAll();
+    toggleView(state.view || 'list');
+    connectSocket();
+    loadFromBackend();
+  </script>
+</body>
+</html>

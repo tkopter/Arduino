@@ -1,0 +1,15 @@
+{
+  "name": "raci-backend",
+  "version": "1.0.0",
+  "description": "RACI proje yönetimi için Node.js + MySQL + Socket.io sunucusu",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "mysql2": "^3.8.0",
+    "socket.io": "^4.7.5"
+  }
+}

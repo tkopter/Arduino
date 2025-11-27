@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RACI Proje Yöneticisi</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+  <script src="http://localhost:3000/socket.io/socket.io.js"></script>
+  <style>
+    :root {
+      --bg: #f6f7f8;
+      --panel: #ffffff;
+      --border: #e5e7eb;
+      --text: #111827;
+      --muted: #6b7280;
+      --accent: #6366f1;
+      --accent-2: #9333ea;
+      --shadow: 0 12px 30px rgba(0,0,0,0.08);
+    }
+    .dark {
+      --bg: #1f2125;
+      --panel: #2a2d33;
+      --border: #3a3f47;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --accent: #a78bfa;
+      --accent-2: #7c3aed;
+      --shadow: 0 12px 30px rgba(0,0,0,0.35);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      transition: background 0.2s ease, color 0.2s ease;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px 20px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+    }
+    .badge { padding: 4px 10px; border-radius: 10px; background: var(--panel); border: 1px solid var(--border); }
+    .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); }
+    .btn {
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text);
+      padding: 10px 14px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: transform 0.1s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+    }
+    .btn.primary { background: linear-gradient(120deg,var(--accent),var(--accent-2)); color: #fff; border: none; }
+    .btn:hover { transform: translateY(-1px); box-shadow: 0 10px 18px rgba(0,0,0,0.08); }
+    .btn:active { transform: translateY(0); }
+    .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .pill { padding: 6px 10px; border-radius: 999px; background: var(--panel); border: 1px solid var(--border); font-size: 12px; color: var(--muted); }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 10px 8px; text-align: left; border-bottom: 1px solid var(--border); }
+    th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+    tr:hover td { background: rgba(99,102,241,0.05); }
+    .handle { cursor: grab; color: var(--muted); }
+    .indent { padding-left: calc(var(--level) * 16px); position: relative; }
+    .indent::before { content: ""; position: absolute; left: 8px; top: 18px; width: calc(var(--level) * 12px); height: 1px; background: var(--border); }
+    .badge-status { padding: 6px 10px; border-radius: 10px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
+    .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: none; align-items: center; justify-content: center; z-index: 30; backdrop-filter: blur(4px); }
+    .modal { width: min(960px, 92vw); max-height: 90vh; overflow: auto; padding: 20px; }
+    .tablist { display: flex; gap: 6px; margin-bottom: 16px; }
+    .tab { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); cursor: pointer; }
+    .tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .input, select { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel); color: var(--text); }
+    .view-switch { border: 1px solid var(--border); background: var(--panel); border-radius: 10px; display: inline-flex; overflow: hidden; }
+    .view-switch button { border: none; padding: 10px 12px; background: transparent; cursor: pointer; color: var(--muted); font-weight: 700; }
+    .view-switch .active { background: var(--accent); color: #fff; }
+    .gantt { padding: 16px; overflow: auto; }
+    .timeline { position: relative; border: 1px solid var(--border); border-radius: 14px; min-width: 720px; }
+    .timeline-header { display: grid; grid-auto-flow: column; grid-auto-columns: 140px; border-bottom: 1px solid var(--border); background: var(--panel); position: sticky; top: 0; z-index: 2; }
+    .timeline-body { position: relative; }
+    .bar-row { display: grid; grid-auto-flow: column; grid-auto-columns: 140px; align-items: center; border-bottom: 1px solid var(--border); }
+    .bar { height: 28px; border-radius: 8px; background: linear-gradient(120deg,var(--accent),var(--accent-2)); position: relative; cursor: grab; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 12px; }
+    .bar::after, .bar::before { content: ""; position: absolute; top: 0; width: 6px; height: 100%; cursor: ew-resize; }
+    .bar::before { left: -3px; }
+    .bar::after { right: -3px; }
+    .ghost { position: absolute; background: rgba(99,102,241,0.35); border: 1px dashed var(--accent); border-radius: 8px; pointer-events: none; backdrop-filter: blur(3px); }
+    .drop-line { height: 2px; background: var(--accent); position: absolute; left: 0; right: 0; display: none; }
+    .floating-menu { position: absolute; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px; box-shadow: var(--shadow); display: none; z-index: 20; min-width: 200px; }
+    .raci-chip { padding: 6px 10px; border-radius: 999px; background: rgba(99,102,241,0.14); color: var(--accent-2); margin-right: 6px; display: inline-flex; align-items: center; gap: 6px; }
+    .small-btn { padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel); cursor: pointer; font-size: 12px; }
+    .file-tag { display: inline-flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 8px; background: rgba(0,0,0,0.04); border: 1px solid var(--border); }
+  </style>
+</head>
+<body>
+  <header>
+    <div style="font-weight: 800; font-size: 22px;">RACI Proje Yöneticisi</div>
+    <span class="badge">Notion stili</span>
+    <div class="toolbar" style="margin-left:auto;">
+      <div class="view-switch" id="viewSwitch">
+        <button data-view="table" class="active">Liste</button>
+        <button data-view="gantt">Gantt</button>
+      </div>
+      <button class="btn" id="darkToggle">🌙 / ☀️</button>
+      <button class="btn" id="aiAnalyze">AI Analiz</button>
+      <button class="btn" id="settingsBtn">Ayarlar</button>
+      <button class="btn" id="addRow">+ Görev</button>
+      <button class="btn primary" id="saveBtn">Kaydet & Senkronize Et</button>
+    </div>
+  </header>
+
+  <main style="padding: 18px; display: flex; flex-direction: column; gap: 16px;">
+    <div class="panel" id="statusBar" style="padding: 12px 14px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+      <span class="pill">Online durum: <strong id="onlineState">Offline</strong></span>
+      <span class="pill">AI anahtarı: <strong id="aiState">Yok</strong></span>
+      <span class="pill">Kayıt modu: <strong>LocalStorage</strong></span>
+    </div>
+
+    <div class="panel" id="tableView" style="padding: 16px;">
+      <div style="overflow: auto;">
+        <table id="taskTable">
+          <thead id="tableHead"></thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+        <div class="drop-line" id="dropLine"></div>
+      </div>
+    </div>
+
+    <div class="panel" id="ganttView" style="padding: 8px; display:none;">
+      <div class="gantt">
+        <div id="ganttRoot"></div>
+      </div>
+    </div>
+  </main>
+
+  <div class="floating-menu" id="raciMenu"></div>
+
+  <div class="modal-backdrop" id="settingsModal">
+    <div class="panel modal">
+      <div style="display:flex; justify-content: space-between; align-items:center; margin-bottom: 8px;">
+        <h2>Ayarlar</h2>
+        <button class="btn" id="closeSettings">✖</button>
+      </div>
+      <div class="tablist">
+        <div class="tab active" data-tab="people">Kişiler</div>
+        <div class="tab" data-tab="status">Durumlar</div>
+        <div class="tab" data-tab="columns">Sütunlar</div>
+        <div class="tab" data-tab="ai">AI</div>
+      </div>
+      <div id="tabContent"></div>
+    </div>
+  </div>
+
+  <template id="taskRowTemplate">
+    <tr draggable="true" class="task-row">
+      <td class="handle">≡</td>
+      <td class="indent">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <button class="small-btn indent-left">◀</button>
+          <button class="small-btn indent-right">▶</button>
+          <input class="input title-input" placeholder="Görev başlığı" />
+          <button class="small-btn ai-magic">✨</button>
+        </div>
+      </td>
+      <td class="start-date"><input type="date" class="input" /></td>
+      <td class="end-date"><input type="date" class="input" /></td>
+      <td class="status-cell"></td>
+      <td class="priority-cell"></td>
+      <td class="notes-cell"><textarea class="input" rows="1" placeholder="Notlar"></textarea></td>
+      <td class="file-cell"></td>
+      <td class="r-cell"></td>
+      <td class="a-cell"></td>
+      <td class="c-cell"></td>
+      <td class="i-cell"></td>
+      <td class="custom-cell"></td>
+      <td class="progress-cell"><input type="range" min="0" max="100" class="progress-input" /></td>
+      <td><button class="small-btn delete-row">🗑</button></td>
+    </tr>
+  </template>
+
+  <script>
+    const state = {
+      people: ['Ahmet','Mehmet','Zeynep','Elif'],
+      statuses: [
+        { label:'Bekliyor', color:'#f59e0b' },
+        { label:'Devam ediyor', color:'#3b82f6' },
+        { label:'Tamamlandı', color:'#10b981' },
+      ],
+      columns: [
+        { key:'status', label:'Durum', type:'select' },
+        { key:'priority', label:'Aciliyet', type:'select', options:[
+          { label:'Düşük', color:'#6b7280' },
+          { label:'Orta', color:'#f59e0b' },
+          { label:'Yüksek', color:'#ef4444' }
+        ]},
+        { key:'notes', label:'Notlar', type:'text' },
+        { key:'file', label:'Dosya', type:'file' }
+      ],
+      tasks: []
+    };
+
+    const defaultTask = () => ({
+      id: crypto.randomUUID(),
+      title: 'Yeni Görev',
+      parentId: null,
+      start: new Date().toISOString().slice(0,10),
+      end: new Date(Date.now()+86400000).toISOString().slice(0,10),
+      status: 'Bekliyor',
+      priority: 'Orta',
+      notes: '',
+      fileName: '',
+      raci: { R: [], A: [], C: [], I: [] },
+      progress: 0,
+      custom: {}
+    });
+
+    let dragContext = { activeId:null, subtree:[], overId:null };
+    let ghostBar = null;
+    let socket = null;
+    let aiKey = '';
+
+    const storageKey = 'raci-app-v4';
+
+    function loadState() {
+      const saved = localStorage.getItem(storageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        Object.assign(state, parsed);
+      } else {
+        state.tasks = [defaultTask()];
+      }
+    }
+
+    function persistState(emit=true) {
+      localStorage.setItem(storageKey, JSON.stringify(state));
+      if (emit && socket && socket.connected) {
+        socket.emit('project:update', state);
+      }
+    }
+
+    function renderHeader() {
+      const head = document.getElementById('tableHead');
+      head.innerHTML = '';
+      const tr = document.createElement('tr');
+      const headers = ['','Görev','Başlangıç','Bitiş'];
+      state.columns.forEach(col => headers.push(col.label));
+      headers.push('İlerleme','');
+      headers.forEach(text => {
+        const th = document.createElement('th'); th.textContent=text; tr.appendChild(th);
+      });
+      head.appendChild(tr);
+    }
+
+    function getLevel(task) {
+      let level=0; let current=task; const visited=new Set();
+      while(current && current.parentId) {
+        if(visited.has(current.parentId)) break; // guard cycles
+        visited.add(current.parentId);
+        level++; current = state.tasks.find(t=>t.id===current.parentId);
+        if(!current) break;
+      }
+      return level;
+    }
+
+    function collectSubtree(id) {
+      const ids=[];
+      function dfs(taskId) {
+        ids.push(taskId);
+        state.tasks.filter(t=>t.parentId===taskId).forEach(t=>dfs(t.id));
+      }
+      dfs(id);
+      return ids;
+    }
+
+    function renderTable() {
+      renderHeader();
+      const body = document.getElementById('tableBody');
+      body.innerHTML='';
+      state.tasks.forEach(task=>{
+        const tpl = document.getElementById('taskRowTemplate');
+        const row = tpl.content.firstElementChild.cloneNode(true);
+        row.dataset.id = task.id;
+        row.querySelector('.indent').style.setProperty('--level', getLevel(task));
+        row.querySelector('.title-input').value = task.title;
+        row.querySelector('.start-date input').value = task.start;
+        row.querySelector('.end-date input').value = task.end;
+        row.querySelector('.progress-input').value = task.progress;
+
+        const statusCell = row.querySelector('.status-cell');
+        statusCell.appendChild(renderStatusSelect(task));
+
+        const priorityCell = row.querySelector('.priority-cell');
+        priorityCell.appendChild(renderPriority(task));
+
+        const notesArea = row.querySelector('.notes-cell textarea');
+        notesArea.value = task.notes;
+
+        const fileCell = row.querySelector('.file-cell');
+        fileCell.appendChild(renderFileButton(task));
+
+        row.querySelector('.r-cell').appendChild(renderRaciChip(task, 'R'));
+        row.querySelector('.a-cell').appendChild(renderRaciChip(task, 'A'));
+        row.querySelector('.c-cell').appendChild(renderRaciChip(task, 'C'));
+        row.querySelector('.i-cell').appendChild(renderRaciChip(task, 'I'));
+
+        const customHolder = row.querySelector('.custom-cell');
+        state.columns.filter(c=>!['status','priority','notes','file'].includes(c.key)).forEach(col=>{
+          customHolder.appendChild(renderCustomField(task,col));
+        });
+
+        attachRowEvents(row, task.id);
+        body.appendChild(row);
+      });
+      attachDragHandlers();
+    }
+
+    function renderStatusSelect(task) {
+      const select = document.createElement('select');
+      select.className = 'input';
+      state.statuses.forEach(s=>{
+        const opt = document.createElement('option');
+        opt.value=s.label; opt.textContent=s.label; opt.style.color=s.color; select.appendChild(opt);
+      });
+      select.value = task.status;
+      select.addEventListener('change', ()=>{ task.status=select.value; persistState(); renderGantt();});
+      return select;
+    }
+
+    function renderPriority(task) {
+      const col = state.columns.find(c=>c.key==='priority');
+      const select = document.createElement('select');
+      select.className='input';
+      col.options.forEach(o=>{
+        const opt=document.createElement('option'); opt.value=o.label; opt.textContent=o.label; select.appendChild(opt);
+      });
+      select.value = task.priority;
+      select.addEventListener('change', ()=>{task.priority=select.value; persistState();});
+      return select;
+    }
+
+    function renderFileButton(task) {
+      const wrap=document.createElement('div');
+      wrap.style.display='flex'; wrap.style.alignItems='center'; wrap.style.gap='6px';
+      const btn=document.createElement('button'); btn.className='small-btn'; btn.textContent='📎 Dosya';
+      const label=document.createElement('span'); label.className='file-tag'; label.textContent=task.fileName||'Seçilmedi';
+      btn.addEventListener('click', ()=>{
+        const input=document.createElement('input'); input.type='file';
+        input.onchange = () => {
+          const file=input.files[0];
+          if(file){ task.fileName=file.name; label.textContent=file.name; persistState(); }
+        };
+        input.click();
+      });
+      wrap.append(btn,label);
+      return wrap;
+    }
+
+    function renderRaciChip(task, key) {
+      const wrap = document.createElement('div');
+      wrap.style.display='flex'; wrap.style.flexWrap='wrap';
+      task.raci[key].forEach(person=>{
+        const chip=document.createElement('div'); chip.className='raci-chip'; chip.textContent=person; wrap.appendChild(chip);
+      });
+      const add=document.createElement('button'); add.className='small-btn'; add.textContent='+';
+      add.addEventListener('click',(e)=>{
+        openRaciMenu(e.currentTarget, task, key);
+      });
+      wrap.appendChild(add);
+      return wrap;
+    }
+
+    function renderCustomField(task, col) {
+      const wrap=document.createElement('div'); wrap.style.marginBottom='6px';
+      const label=document.createElement('div'); label.textContent=col.label; label.style.fontSize='12px'; label.style.color='var(--muted)';
+      wrap.appendChild(label);
+      const value=task.custom[col.key]||'';
+      let input;
+      if(col.type==='date') { input=document.createElement('input'); input.type='date'; }
+      else if(col.type==='number') { input=document.createElement('input'); input.type='number'; }
+      else if(col.type==='select') {
+        input=document.createElement('select');
+        (col.options||[]).forEach(o=>{ const opt=document.createElement('option'); opt.value=o.label; opt.textContent=o.label; input.appendChild(opt); });
+      } else { input=document.createElement('input'); input.type='text'; }
+      input.className='input'; input.value=value;
+      input.addEventListener('change',()=>{ task.custom[col.key]=input.value; persistState(); });
+      wrap.appendChild(input);
+      return wrap;
+    }
+
+    function attachRowEvents(row, id) {
+      const task = state.tasks.find(t=>t.id===id);
+      row.querySelector('.title-input').addEventListener('input', (e)=>{task.title=e.target.value; persistState(); renderGantt();});
+      row.querySelector('.notes-cell textarea').addEventListener('input',(e)=>{task.notes=e.target.value; persistState();});
+      row.querySelector('.start-date input').addEventListener('change',(e)=>{task.start=e.target.value; persistState(); renderGantt();});
+      row.querySelector('.end-date input').addEventListener('change',(e)=>{task.end=e.target.value; persistState(); renderGantt();});
+      row.querySelector('.progress-input').addEventListener('input',(e)=>{task.progress=Number(e.target.value); persistState();});
+      row.querySelector('.delete-row').addEventListener('click',()=>{ deleteTask(id); });
+      row.querySelector('.indent-left').addEventListener('click',()=>{ changeIndent(task,-1); });
+      row.querySelector('.indent-right').addEventListener('click',()=>{ changeIndent(task,1); });
+      row.querySelector('.ai-magic').addEventListener('click',(e)=>{ openAiMenu(e.currentTarget, task); });
+    }
+
+    function deleteTask(id) {
+      const ids = collectSubtree(id);
+      state.tasks = state.tasks.filter(t=>!ids.includes(t.id));
+      persistState();
+      renderTable(); renderGantt();
+    }
+
+    function changeIndent(task, delta) {
+      if(delta>0) {
+        const idx = state.tasks.indexOf(task);
+        if(idx>0) {
+          const candidateId = state.tasks[idx-1].id;
+          const subtree = new Set(collectSubtree(task.id));
+          if(!subtree.has(candidateId)) {
+            task.parentId = candidateId; // indent under previous
+          }
+        }
+      } else {
+        const parent = state.tasks.find(t=>t.id===task.parentId);
+        task.parentId = parent ? parent.parentId : null;
+      }
+      persistState(); renderTable(); renderGantt();
+    }
+
+    function attachDragHandlers() {
+      const body = document.getElementById('tableBody');
+      const dropLine = document.getElementById('dropLine');
+      body.querySelectorAll('tr').forEach(row=>{
+        row.addEventListener('dragstart',(e)=>{
+          dragContext.activeId = row.dataset.id;
+          dragContext.subtree = collectSubtree(dragContext.activeId);
+          e.dataTransfer.effectAllowed='move';
+        });
+        row.addEventListener('dragover',(e)=>{
+          e.preventDefault();
+          const rect = row.getBoundingClientRect();
+          const middle = rect.top + rect.height/2;
+          dragContext.overId = row.dataset.id;
+          dropLine.style.display='block';
+          dropLine.style.top = (e.clientY < middle ? rect.top : rect.bottom) + window.scrollY + 'px';
+        });
+        row.addEventListener('dragleave',()=>{ dropLine.style.display='none'; });
+        row.addEventListener('drop',(e)=>{
+          e.preventDefault(); dropLine.style.display='none';
+          const targetId = row.dataset.id;
+          if(!dragContext.activeId || dragContext.subtree.includes(targetId)) return;
+          moveSubtree(dragContext.activeId, targetId, e.clientY < row.getBoundingClientRect().top + row.offsetHeight/2 ? 'before' : 'after');
+          dragContext = {activeId:null, subtree:[], overId:null};
+        });
+      });
+    }
+
+    function moveSubtree(sourceId, targetId, position) {
+      const ids = collectSubtree(sourceId);
+      const filtered = state.tasks.filter(t=>!ids.includes(t.id));
+      let targetIndex = filtered.findIndex(t=>t.id===targetId);
+      if(position==='after') targetIndex++;
+      const sourceTasks = state.tasks.filter(t=>ids.includes(t.id));
+      filtered.splice(targetIndex,0,...sourceTasks);
+      state.tasks = filtered;
+      persistState();
+      renderTable(); renderGantt();
+    }
+
+    function renderGantt() {
+      const root = document.getElementById('ganttRoot');
+      root.innerHTML='';
+      if(!state.tasks.length) return;
+      const minDate = new Date(Math.min(...state.tasks.map(t=>new Date(t.start).getTime())));
+      const maxDate = new Date(Math.max(...state.tasks.map(t=>new Date(t.end).getTime())));
+      const dayMs = 86400000;
+      const days = Math.max(1, Math.round((maxDate - minDate)/dayMs)+7);
+      const timeline = document.createElement('div'); timeline.className='timeline';
+      const header = document.createElement('div'); header.className='timeline-header';
+      for(let i=0;i<days;i++){
+        const cell=document.createElement('div');
+        const d=new Date(minDate.getTime()+i*dayMs);
+        cell.textContent=d.toISOString().slice(5,10);
+        cell.style.padding='8px'; cell.style.color='var(--muted)';
+        header.appendChild(cell);
+      }
+      timeline.appendChild(header);
+      const body=document.createElement('div'); body.className='timeline-body';
+      state.tasks.forEach(task=>{
+        const row=document.createElement('div'); row.className='bar-row';
+        const bar=document.createElement('div'); bar.className='bar'; bar.dataset.id=task.id;
+        const startOffset = Math.round((new Date(task.start)-minDate)/dayMs);
+        const duration = Math.max(1, Math.round((new Date(task.end)-new Date(task.start))/dayMs)+1);
+        bar.style.gridColumn = `${startOffset+1} / span ${duration}`;
+        bar.textContent = task.title;
+        bar.addEventListener('pointerdown',(e)=>startBarDrag(e, task, minDate, dayMs));
+        row.appendChild(bar);
+        body.appendChild(row);
+      });
+      timeline.appendChild(body);
+      root.appendChild(timeline);
+    }
+
+    function startBarDrag(e, task, minDate, dayMs){
+      e.preventDefault();
+      const bar = e.currentTarget;
+      const rect = bar.getBoundingClientRect();
+      const isLeft = e.clientX - rect.left < 8;
+      const isRight = rect.right - e.clientX < 8;
+      const mode = isLeft ? 'resize-start' : isRight ? 'resize-end' : 'move';
+      const startX = e.clientX;
+      const origStart = new Date(task.start);
+      const origEnd = new Date(task.end);
+      createGhost(bar);
+
+      const onMove = (ev)=>{
+        const deltaPx = ev.clientX - startX;
+        const dayWidth = rect.width / (Math.round((origEnd-origStart)/dayMs)+1);
+        const deltaDays = Math.round(deltaPx / dayWidth);
+        if(mode==='move') {
+          const newStart = new Date(origStart.getTime() + deltaDays*dayMs);
+          const newEnd = new Date(origEnd.getTime() + deltaDays*dayMs);
+          task.start = toDateInput(newStart); task.end = toDateInput(newEnd);
+        } else if(mode==='resize-start') {
+          const newStart = new Date(origStart.getTime() + deltaDays*dayMs);
+          if(newStart<origEnd) task.start = toDateInput(newStart);
+        } else if(mode==='resize-end') {
+          const newEnd = new Date(origEnd.getTime() + deltaDays*dayMs);
+          if(newEnd>origStart) task.end = toDateInput(newEnd);
+        }
+        updateGhost(bar);
+      };
+      const onUp = ()=>{
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onUp);
+        removeGhost();
+        persistState(); renderTable(); renderGantt();
+      };
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', onUp);
+    }
+
+    function createGhost(bar){
+      ghostBar = bar.cloneNode(true);
+      ghostBar.classList.add('ghost');
+      ghostBar.style.opacity='0.4';
+      ghostBar.style.position='fixed';
+      ghostBar.style.left=bar.getBoundingClientRect().left+'px';
+      ghostBar.style.top=bar.getBoundingClientRect().top+'px';
+      ghostBar.style.width=bar.getBoundingClientRect().width+'px';
+      document.body.appendChild(ghostBar);
+    }
+    function updateGhost(bar){
+      if(!ghostBar) return;
+      const rect = bar.getBoundingClientRect();
+      ghostBar.style.left=rect.left+'px';
+      ghostBar.style.top=rect.top+'px';
+      ghostBar.style.width=rect.width+'px';
+    }
+    function removeGhost(){ if(ghostBar){ ghostBar.remove(); ghostBar=null; } }
+
+    function openRaciMenu(anchor, task, key){
+      const menu=document.getElementById('raciMenu');
+      menu.innerHTML='';
+      const list=document.createElement('div');
+      state.people.forEach(p=>{
+        const row=document.createElement('div'); row.style.display='flex'; row.style.justifyContent='space-between'; row.style.alignItems='center'; row.style.marginBottom='6px';
+        const label=document.createElement('span'); label.textContent=p; row.appendChild(label);
+        const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=task.raci[key].includes(p);
+        cb.onchange=()=>{
+          if(cb.checked) task.raci[key].push(p); else task.raci[key]=task.raci[key].filter(x=>x!==p);
+          persistState(); renderTable();
+        };
+        row.appendChild(cb); list.appendChild(row);
+      });
+      const add=document.createElement('input'); add.placeholder='Yeni kişi'; add.className='input';
+      add.addEventListener('keydown',(e)=>{
+        if(e.key==='Enter' && add.value.trim()){
+          state.people.push(add.value.trim());
+          task.raci[key].push(add.value.trim());
+          persistState(); renderTable(); openRaciMenu(anchor,task,key);
+        }
+      });
+      menu.append(list,add);
+      const rect = anchor.getBoundingClientRect();
+      menu.style.left = rect.left + 'px';
+      menu.style.top = rect.bottom + 6 + 'px';
+      menu.style.display='block';
+    }
+
+    function openAiMenu(anchor, task){
+      const menu=document.getElementById('raciMenu');
+      menu.innerHTML='';
+      const btn1=document.createElement('button'); btn1.className='btn'; btn1.textContent='Alt görev öner (Gemini)';
+      btn1.onclick=()=>{ runAi('subtasks', task); menu.style.display='none';};
+      const btn2=document.createElement('button'); btn2.className='btn'; btn2.textContent='RACI öner (Gemini)';
+      btn2.onclick=()=>{ runAi('raci', task); menu.style.display='none';};
+      menu.append(btn1,btn2);
+      const rect = anchor.getBoundingClientRect();
+      menu.style.left = rect.left + 'px';
+      menu.style.top = rect.bottom + 6 + 'px';
+      menu.style.display='block';
+    }
+
+    document.body.addEventListener('click',(e)=>{
+      if(!document.getElementById('raciMenu').contains(e.target) && !e.target.classList.contains('small-btn')){
+        document.getElementById('raciMenu').style.display='none';
+      }
+    });
+
+    function runAi(mode, task){
+      if(!aiKey){ alert('AI anahtarını Ayarlar > AI sekmesinden ekleyin.'); return; }
+      const prompt = mode==='subtasks'
+        ? `Bu görev için 3 alt görev öner: ${task.title}`
+        : `Bu görev için R, A, C, I rollerini öner. Kullanıcı listesi: ${state.people.join(',')}. Görev: ${task.title}`;
+      fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key='+aiKey,{
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ contents:[{parts:[{text:prompt}]}] })
+      }).then(r=>r.json()).then(res=>{
+        const text=res?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        if(mode==='subtasks'){
+          text.split('\n').filter(Boolean).slice(0,4).forEach(line=>{
+            const t=defaultTask(); t.title=line.replace(/^[^a-zA-ZğüşöçıİĞÜŞÖÇ0-9]+/, ''); t.parentId=task.id; state.tasks.push(t);
+          });
+        } else {
+          const roles=['R','A','C','I'];
+          roles.forEach(r=>{ const match=text.match(new RegExp(r+'[:=-]\\s*([^\n,]+)')); if(match){ task.raci[r]=match[1].split(/,|\/|;/).map(x=>x.trim()).filter(Boolean); }});
+        }
+        persistState(); renderTable(); renderGantt();
+      }).catch(err=>{
+        console.error(err);
+        alert('AI isteği başarısız oldu.');
+      });
+    }
+
+    function toDateInput(d){ return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10); }
+
+    function openSettings(tab='people'){
+      document.getElementById('settingsModal').style.display='flex';
+      document.querySelectorAll('.tab').forEach(t=>{ t.classList.toggle('active', t.dataset.tab===tab); });
+      renderSettings(tab);
+    }
+
+    function renderSettings(tab){
+      const wrap=document.getElementById('tabContent');
+      wrap.innerHTML='';
+      if(tab==='people'){
+        const list=document.createElement('div');
+        state.people.forEach((p,idx)=>{
+          const row=document.createElement('div'); row.style.display='flex'; row.style.gap='8px'; row.style.marginBottom='8px';
+          const input=document.createElement('input'); input.className='input'; input.value=p;
+          input.onchange=()=>{ state.people[idx]=input.value; persistState(); };
+          const del=document.createElement('button'); del.className='small-btn'; del.textContent='Sil'; del.onclick=()=>{ state.people.splice(idx,1); state.tasks.forEach(t=>{['R','A','C','I'].forEach(k=>{t.raci[k]=t.raci[k].filter(n=>n!==p);});}); persistState(); renderSettings(tab); renderTable(); };
+          row.append(input,del); list.appendChild(row);
+        });
+        const add=document.createElement('button'); add.className='btn'; add.textContent='+ Kişi'; add.onclick=()=>{ state.people.push('Yeni Kişi'); persistState(); renderSettings(tab); };
+        wrap.append(list,add);
+      }
+      if(tab==='status'){
+        const list=document.createElement('div');
+        state.statuses.forEach((s,idx)=>{
+          const row=document.createElement('div'); row.style.display='flex'; row.style.gap='8px'; row.style.marginBottom='8px';
+          const name=document.createElement('input'); name.className='input'; name.value=s.label; name.onchange=()=>{ s.label=name.value; persistState(); renderTable(); };
+          const color=document.createElement('input'); color.type='color'; color.value=s.color; color.onchange=()=>{ s.color=color.value; persistState(); renderTable(); };
+          const del=document.createElement('button'); del.className='small-btn'; del.textContent='Sil'; del.onclick=()=>{ state.statuses.splice(idx,1); persistState(); renderSettings(tab); renderTable(); };
+          row.append(name,color,del); list.appendChild(row);
+        });
+        const add=document.createElement('button'); add.className='btn'; add.textContent='+ Durum'; add.onclick=()=>{ state.statuses.push({label:'Yeni Durum', color:'#6366f1'}); persistState(); renderSettings(tab); };
+        wrap.append(list,add);
+      }
+      if(tab==='columns'){
+        const list=document.createElement('div');
+        state.columns.forEach((c,idx)=>{
+          const row=document.createElement('div'); row.style.display='grid'; row.style.gridTemplateColumns='1fr 120px 60px 60px 60px'; row.style.gap='8px'; row.style.marginBottom='8px';
+          const name=document.createElement('input'); name.className='input'; name.value=c.label; name.onchange=()=>{ c.label=name.value; persistState(); renderHeader(); };
+          const type=document.createElement('select'); type.className='input'; ['text','number','date','select','file','person'].forEach(t=>{ const opt=document.createElement('option'); opt.value=t; opt.textContent=t; type.appendChild(opt); }); type.value=c.type; type.onchange=()=>{ c.type=type.value; persistState(); renderTable(); };
+          const up=document.createElement('button'); up.className='small-btn'; up.textContent='↑'; up.onclick=()=>{ if(idx>0){ [state.columns[idx-1], state.columns[idx]]=[state.columns[idx], state.columns[idx-1]]; persistState(); renderSettings(tab); renderTable(); }};
+          const down=document.createElement('button'); down.className='small-btn'; down.textContent='↓'; down.onclick=()=>{ if(idx<state.columns.length-1){ [state.columns[idx+1], state.columns[idx]]=[state.columns[idx], state.columns[idx+1]]; persistState(); renderSettings(tab); renderTable(); }};
+          const del=document.createElement('button'); del.className='small-btn'; del.textContent='Sil'; del.onclick=()=>{ state.columns.splice(idx,1); state.tasks.forEach(t=>delete t.custom[c.key]); persistState(); renderSettings(tab); renderTable(); };
+          row.append(name,type,up,down,del); list.appendChild(row);
+        });
+        const addWrap=document.createElement('div'); addWrap.style.display='flex'; addWrap.style.gap='8px';
+        const name=document.createElement('input'); name.className='input'; name.placeholder='Sütun adı';
+        const type=document.createElement('select'); type.className='input'; ['text','number','date','select','file','person'].forEach(t=>{ const opt=document.createElement('option'); opt.value=t; opt.textContent=t; type.appendChild(opt); });
+        const btn=document.createElement('button'); btn.className='btn'; btn.textContent='+ Ekle'; btn.onclick=()=>{
+          if(!name.value) return;
+          const key = name.value.toLowerCase().replace(/[^a-z0-9]+/g,'-') + '-' + Date.now();
+          state.columns.push({key,label:name.value,type:type.value});
+          persistState(); renderSettings(tab); renderTable();
+        };
+        addWrap.append(name,type,btn);
+        wrap.append(list,addWrap);
+      }
+      if(tab==='ai'){
+        const info=document.createElement('p'); info.textContent='Google Gemini API anahtarını ekleyin:';
+        const input=document.createElement('input'); input.className='input'; input.value=aiKey; input.placeholder='AIza...'; input.onchange=()=>{ aiKey=input.value.trim(); document.getElementById('aiState').textContent = aiKey ? 'Hazır' : 'Yok'; };
+        wrap.append(info,input);
+      }
+    }
+
+    function connectSocket(){
+      if(!window.io) return;
+      socket = io('http://localhost:3000');
+      socket.on('connect', ()=>{ document.getElementById('onlineState').textContent='Online'; });
+      socket.on('project:sync', data=>{ Object.assign(state, data); persistState(false); renderTable(); renderGantt(); });
+    }
+
+    function fetchProjectFromBackend(){
+      fetch('http://localhost:3000/api/project')
+        .then(r=>r.json())
+        .then(res=>{
+          if(res?.data){
+            Object.assign(state, res.data);
+            persistState(false);
+            renderTable(); renderGantt();
+          }
+        })
+        .catch(()=>{});
+    }
+
+    function saveToBackend(){
+      fetch('http://localhost:3000/api/save',{ method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ projectId:1, data:state }) })
+        .then(r=>r.json()).then(()=>alert('Sunucuya gönderildi')).catch(()=>alert('Sunucuya erişilemedi. LocalStorage kullanılacak.'));
+    }
+
+    function renderTabs(){
+      document.querySelectorAll('.tab').forEach(tab=>{
+        tab.addEventListener('click',()=>{
+          document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+          tab.classList.add('active');
+          renderSettings(tab.dataset.tab);
+        });
+      });
+    }
+
+    function setupViewSwitch(){
+      document.querySelectorAll('#viewSwitch button').forEach(btn=>{
+        btn.addEventListener('click',()=>{
+          document.querySelectorAll('#viewSwitch button').forEach(b=>b.classList.remove('active'));
+          btn.classList.add('active');
+          document.getElementById('tableView').style.display = btn.dataset.view==='table' ? 'block' : 'none';
+          document.getElementById('ganttView').style.display = btn.dataset.view==='gantt' ? 'block' : 'none';
+        });
+      });
+    }
+
+    function init(){
+      loadState();
+      fetchProjectFromBackend();
+      renderTable(); renderGantt(); renderTabs(); setupViewSwitch();
+      document.getElementById('darkToggle').addEventListener('click',()=>{ document.body.classList.toggle('dark'); });
+      document.getElementById('addRow').addEventListener('click',()=>{ state.tasks.push(defaultTask()); persistState(); renderTable(); renderGantt(); });
+      document.getElementById('settingsBtn').addEventListener('click',()=>openSettings());
+      document.getElementById('closeSettings').addEventListener('click',()=>document.getElementById('settingsModal').style.display='none');
+      document.getElementById('saveBtn').addEventListener('click',()=>{ persistState(); saveToBackend(); });
+      document.getElementById('aiAnalyze').addEventListener('click',()=>{ runAiAnalyze(); });
+      document.getElementById('tableView').addEventListener('scroll',()=>{ document.getElementById('dropLine').style.display='none'; });
+      document.addEventListener('keydown',(e)=>{ if(e.key==='Escape'){ document.getElementById('settingsModal').style.display='none'; document.getElementById('raciMenu').style.display='none'; } });
+      connectSocket();
+    }
+
+    function runAiAnalyze(){
+      if(!aiKey){ alert('AI anahtarını ekleyin.'); return; }
+      const prompt = `Bu proje verisini değerlendir ve riskleri, gecikmeleri belirt: ${JSON.stringify(state.tasks)}`;
+      fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key='+aiKey,{
+        method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({contents:[{parts:[{text:prompt}]}]})
+      }).then(r=>r.json()).then(res=>{
+        const text=res?.candidates?.[0]?.content?.parts?.[0]?.text || 'Sonuç yok';
+        alert(text);
+      }).catch(()=>alert('AI analizi başarısız oldu'));
+    }
+
+    document.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>
